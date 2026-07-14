@@ -1,0 +1,36 @@
+# Houston Cloud control plane.
+#
+# Build from the control-plane directory:
+#
+#   docker build -t houston/cloud-api:latest \
+#     -f container/Dockerfile.control-plane control-plane/
+
+# ---------- Build stage ----------
+FROM rust:1.88-slim-bookworm AS build
+WORKDIR /src
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config libssl-dev ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY . .
+
+RUN cargo build --release --bin houston-cloud-api
+
+# ---------- Runtime stage ----------
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --uid 10002 --no-create-home houston-api
+
+COPY --from=build /src/target/release/houston-cloud-api /usr/local/bin/houston-cloud-api
+
+USER houston-api
+
+ENV BIND=0.0.0.0:3001
+
+EXPOSE 3001
+
+CMD ["/usr/local/bin/houston-cloud-api"]

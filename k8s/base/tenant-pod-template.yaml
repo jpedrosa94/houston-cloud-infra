@@ -1,0 +1,124 @@
+# Template for per-tenant engine pods.
+# The control plane renders this with tenant-specific values and applies it
+# to the houston-tenants namespace via the Kubernetes API.
+#
+# Placeholders: ${TENANT_ID}, ${ENGINE_IMAGE}, ${ENGINE_TOKEN_SECRET}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tenant-${TENANT_ID}-data
+  namespace: houston-tenants
+  labels:
+    app: houston-engine
+    houston.ai/tenant: "${TENANT_ID}"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard-rwo
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tenant-${TENANT_ID}-token
+  namespace: houston-tenants
+  labels:
+    houston.ai/tenant: "${TENANT_ID}"
+type: Opaque
+stringData:
+  token: "${ENGINE_TOKEN}"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: tenant-${TENANT_ID}
+  namespace: houston-tenants
+  labels:
+    app: houston-engine
+    houston.ai/role: tenant-engine
+    houston.ai/tenant: "${TENANT_ID}"
+spec:
+  runtimeClassName: gvisor
+  serviceAccountName: tenant-engine
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    fsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: engine
+      image: ${ENGINE_IMAGE}
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+      ports:
+        - name: http
+          containerPort: 7777
+          protocol: TCP
+      env:
+        - name: HOUSTON_BIND
+          value: "0.0.0.0:7777"
+        - name: HOUSTON_BIND_ALL
+          value: "1"
+        - name: HOUSTON_NO_PARENT_WATCHDOG
+          value: "1"
+        - name: HOUSTON_HOME
+          value: "/data/.houston"
+        - name: HOUSTON_DOCS
+          value: "/data/Houston"
+        - name: HOUSTON_ENGINE_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: tenant-${TENANT_ID}-token
+              key: token
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+      volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: tmp
+          mountPath: /tmp
+      readinessProbe:
+        exec:
+          command:
+            - /bin/sh
+            - -c
+            - curl -sf -H "Authorization: Bearer ${HOUSTON_ENGINE_TOKEN}" http://localhost:7777/v1/health
+        initialDelaySeconds: 3
+        periodSeconds: 10
+        timeoutSeconds: 3
+      livenessProbe:
+        exec:
+          command:
+            - /bin/sh
+            - -c
+            - curl -sf -H "Authorization: Bearer ${HOUSTON_ENGINE_TOKEN}" http://localhost:7777/v1/health
+        initialDelaySeconds: 10
+        periodSeconds: 30
+        timeoutSeconds: 5
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: tenant-${TENANT_ID}-data
+    - name: tmp
+      emptyDir: {}
+  restartPolicy: Always
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tenant-engine
+  namespace: houston-tenants
+automountServiceAccountToken: false

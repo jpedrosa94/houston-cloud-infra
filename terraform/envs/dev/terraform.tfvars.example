@@ -1,0 +1,2 @@
+project_id = "PLACEHOLDER_GCP_PROJECT_ID"
+region     = "us-central1"

@@ -1,0 +1,10 @@
+{
+  "name": "houston-cloud-infra",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "posthog-js": "^1.373.5",
+    "qrcode.react": "^4.2.0"
+  }
+}

@@ -1,0 +1,48 @@
+# Default deny all traffic in tenant namespace.
+# Tenant pods can only be reached by the control plane,
+# and can only send traffic to the egress gateway + DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tenant-default-deny
+  namespace: houston-tenants
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Only control plane can reach tenant engines
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              houston.ai/role: control-plane
+          podSelector:
+            matchLabels:
+              app: houston-cloud-api
+      ports:
+        - port: 7777
+          protocol: TCP
+  egress:
+    # DNS resolution (kube-dns)
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Egress gateway only (Phase 5 — until then, allow outbound HTTPS)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              houston.ai/role: control-plane
+          podSelector:
+            matchLabels:
+              app: egress-gateway
+      ports:
+        - port: 443
+          protocol: TCP

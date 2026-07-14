@@ -1,0 +1,182 @@
+# Control plane — Deployment + Service + ServiceAccount.
+#
+# Runs in houston-system namespace. Reachable by:
+# - Browser via Gateway HTTPRoute (api.engine.houston.cloud)
+# - Cilium ext-authz via ClusterIP (houston-cloud-api.houston-system:3001)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: houston-cloud-api
+  namespace: houston-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: houston-cloud-api
+  namespace: houston-system
+  labels:
+    app: houston-cloud-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: houston-cloud-api
+  template:
+    metadata:
+      labels:
+        app: houston-cloud-api
+    spec:
+      serviceAccountName: houston-cloud-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10002
+        runAsGroup: 10002
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: us-central1-docker.pkg.dev/jp-tests-496912/houston-engine/houston-cloud-api:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 3001
+              protocol: TCP
+          env:
+            - name: BIND
+              value: "0.0.0.0:3001"
+            - name: SUPABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: control-plane-secrets
+                  key: supabase-url
+            - name: SUPABASE_SERVICE_ROLE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: control-plane-secrets
+                  key: supabase-service-role-key
+            - name: SUPABASE_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: control-plane-secrets
+                  key: supabase-jwt-secret
+            - name: ENGINE_IMAGE
+              valueFrom:
+                configMapKeyRef:
+                  name: control-plane-config
+                  key: engine-image
+            - name: ENGINE_URL_TEMPLATE
+              value: "http://tenant-{tenant_id}.houston-tenants.svc.cluster.local:7777"
+            - name: GATEWAY_DOMAIN
+              value: "engine.houston.cloud"
+            - name: GVISOR
+              value: "1"
+            - name: STORAGE_CLASS
+              value: "standard-rwo"
+            - name: RUST_LOG
+              value: "info"
+            - name: CORS_ALLOWED_ORIGINS
+              value: "https://app.engine.houston.cloud"
+            - name: GATEWAY_SCHEME
+              value: "https"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            tcpSocket:
+              port: 3001
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 3001
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: houston-cloud-api
+  namespace: houston-system
+  labels:
+    app: houston-cloud-api
+spec:
+  selector:
+    app: houston-cloud-api
+  ports:
+    - name: http
+      port: 3001
+      targetPort: 3001
+      protocol: TCP
+  type: ClusterIP
+---
+# Public API route. Only /api/* is exposed through the Gateway; /ext-authz
+# remains reachable only through the ClusterIP service inside the cluster.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: houston-cloud-api
+  namespace: houston-system
+spec:
+  parentRefs:
+    - name: houston-gateway
+      namespace: houston-system
+      sectionName: https
+    # Dev-only Gateway manifests use an HTTP listener named "http".
+    - name: houston-gateway
+      namespace: houston-system
+      sectionName: http
+  hostnames:
+    - api.engine.houston.cloud
+    - api.34.46.111.183.nip.io
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/
+      backendRefs:
+        - name: houston-cloud-api
+          port: 3001
+---
+# RBAC — control plane needs to create/delete pods, services, secrets,
+# PVCs, and HTTPRoutes in the houston-tenants namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tenant-provisioner
+  namespace: houston-tenants
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "secrets", "persistentvolumeclaims"]
+    verbs: ["get", "list", "create", "delete"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes"]
+    verbs: ["get", "list", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: control-plane-tenant-provisioner
+  namespace: houston-tenants
+subjects:
+  - kind: ServiceAccount
+    name: houston-cloud-api
+    namespace: houston-system
+roleRef:
+  kind: Role
+  name: tenant-provisioner
+  apiGroup: rbac.authorization.k8s.io

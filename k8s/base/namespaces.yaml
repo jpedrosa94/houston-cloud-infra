@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: houston-system
+  labels:
+    houston.ai/role: control-plane
+    houston.ai/gateway-routes: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: houston-tenants
+  labels:
+    houston.ai/role: tenant-engines
+    houston.ai/gateway-routes: "true"

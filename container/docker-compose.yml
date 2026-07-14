@@ -1,0 +1,51 @@
+# Houston Cloud — local development stack.
+#
+# Runs the engine container so the web frontend (pnpm dev) can connect to it.
+# See docs/local-development.md for the full setup guide.
+#
+# Usage:
+#   cp .env.example .env
+#   docker compose up
+
+services:
+  engine:
+    build:
+      context: ${HOUSTON_REPO:-../../houston}
+      dockerfile: ${PWD}/Dockerfile
+    image: houston/engine:local
+    restart: unless-stopped
+    ports:
+      - "7777:7777"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges
+    tmpfs:
+      - /tmp:size=64M
+    environment:
+      RUST_LOG: "info,houston_file_watcher=warn"
+      HOUSTON_BIND: "0.0.0.0:7777"
+      HOUSTON_BIND_ALL: "1"
+      HOUSTON_ENGINE_TOKEN: "${HOUSTON_ENGINE_TOKEN:-dev-token-replace-me}"
+      HOUSTON_NO_PARENT_WATCHDOG: "1"
+      HOUSTON_TUNNEL_URL: "http://0.0.0.0:1"
+      # Composio CLI auto-installs at startup; pre-installed in Dockerfile.
+    volumes:
+      - houston-home:/data/.houston
+      - houston-docs:/data/Houston
+      - houston-claude-creds:/data/.claude
+      - houston-codex-creds:/data/.codex
+      - houston-composio:/data/.composio
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:7777/v1/health"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  houston-home:
+  houston-docs:
+  houston-claude-creds:
+  houston-codex-creds:
+  houston-composio:

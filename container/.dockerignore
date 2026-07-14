@@ -1,0 +1,37 @@
+# Excluded from build context (houston monorepo root).
+# Docker resolves this relative to the Dockerfile location when
+# using docker compose with `dockerfile:` pointing here.
+
+target/
+.git/
+node_modules/
+
+# Desktop app (not needed for engine-only build)
+app/
+mobile/
+website/
+store/
+always-on/
+examples/
+houston-relay/
+cloud/
+teams/
+
+# Docs and scripts
+knowledge-base/
+docs/
+scripts/
+.github/
+*.md
+
+# UI packages — except agent-schemas (engine embeds its JSON schemas)
+ui/core/
+ui/chat/
+ui/board/
+ui/layout/
+ui/agent/
+ui/routines/
+ui/skills/
+ui/events/
+ui/review/
+ui/engine-client/

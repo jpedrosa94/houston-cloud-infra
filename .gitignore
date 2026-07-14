@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+coverage/
+target/
+**/target/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+control-plane/.env
+control-plane/.env.*
+!control-plane/.env.example
+container/.env
+container/.env.*
+!container/.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Terraform local state and machine-specific files
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+!*.tfvars.json.example
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Local tool settings
+.claude/settings.local.json
+
+# OS/editor noise
+.DS_Store
+*.swp
+*.swo

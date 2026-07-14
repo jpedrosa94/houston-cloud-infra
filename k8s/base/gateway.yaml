@@ -1,0 +1,70 @@
+# Cilium Gateway — entry point for all tenant traffic.
+#
+# Architecture:
+#   Browser → Gateway (JWT in Authorization header)
+#           → ext-authz call to control plane (validates JWT)
+#           ← control plane returns engine token + backend URL
+#           → Gateway injects Authorization: Bearer <engine_token>
+#           → Tenant Pod (authenticated via engine token)
+#
+# The browser NEVER sees the engine token. Security properties:
+#   - JWT validated on every request at the edge
+#   - Engine tokens are server-side only
+#   - JWT rotates hourly and is revocable via Supabase
+#
+# Wildcard DNS: *.engine.houston.cloud → this Gateway's external IP.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: houston-gateway
+  namespace: houston-system
+spec:
+  gatewayClassName: cilium
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: "*.engine.houston.cloud"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: houston-tls
+            namespace: houston-system
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              houston.ai/gateway-routes: "true"
+    - name: http-redirect
+      protocol: HTTP
+      port: 80
+      hostname: "*.engine.houston.cloud"
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+# Ext-authz policy — every request to a tenant subdomain must pass
+# through the control plane for JWT validation + engine token injection.
+apiVersion: cilium.io/v2
+kind: CiliumEnvoyConfig
+metadata:
+  name: houston-ext-authz
+  namespace: houston-system
+spec:
+  services:
+    - name: houston-gateway
+      namespace: houston-system
+  resources:
+    - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster
+      name: ext-authz-cluster
+      type: STRICT_DNS
+      load_assignment:
+        cluster_name: ext-authz-cluster
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: houston-cloud-api.houston-system.svc.cluster.local
+                      port_value: 3001
